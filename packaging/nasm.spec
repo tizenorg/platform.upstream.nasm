@@ -7,7 +7,6 @@ Url:            http://nasm.sourceforge.net/
 Group:          Development/Languages/Other
 Source:         nasm-%{version}.tar.bz2
 BuildRequires:  makeinfo
-BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 
 %description
 NASM is a prototype general-purpose x86 assembler. It can currently
