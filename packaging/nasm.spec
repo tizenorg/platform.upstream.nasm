@@ -1,11 +1,11 @@
 Name:           nasm
-Version:        2.09.08
+Version:        2.10.07
 Release:        0
 License:        BSD-2-Clause
 Summary:        Netwide Assembler (An x86 Assembler)
 Url:            http://nasm.sourceforge.net/
-Group:          Development/Languages/Other
-Source:         nasm-%{version}.tar.bz2
+Group:          Development/Languages
+Source:         nasm-%{version}.tar.xz
 BuildRequires:  makeinfo
 
 %description
@@ -20,8 +20,7 @@ Read the licence agreement in /usr/share/doc/packages/nasm/Licence.
 %package doc
 License:        LGPL-2.1+
 Summary:        Documentation for Nasm
-Group:          Development/Languages/Other
-Provides:       nasm:/usr/share/doc/packages/nasm/nasmdoc.pdf
+Group:          Development/Languages
 
 %description doc
 This package contains the documentation for Nasm.
@@ -56,6 +55,7 @@ install -m 644 doc/info/* %{buildroot}%{_infodir}
 
 %files
 %defattr(-,root,root)
+%license LICENSE
 /usr/bin/*
 %doc %{_mandir}/man1/*.1.gz
 
