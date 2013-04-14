@@ -1,24 +1,24 @@
 # -*- coding: utf-8 -*-
-%define nasm_version 2.09.08
+%define nasm_version 2.10.07
 Summary: The Netwide Assembler, a portable x86 assembler with Intel-like syntax
 Name: nasm
-Version: 2.09.08
+Version: 2.10.07
 Release: 1
 License: BSD
 Group: Development/Languages
-Source: http://www.nasm.us/pub/nasm/releasebuilds/%{nasm_version}/nasm-%{nasm_version}.tar.bz2
+Source: http://www.nasm.us/pub/nasm/releasebuilds/%{nasm_version}/nasm-%{nasm_version}.tar.xz
 URL: http://www.nasm.us/
 BuildRoot: /tmp/rpm-build-nasm
 Prefix: %{_prefix}
-BuildPrereq: perl
+BuildRequires: perl
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
-Requires(post): /sbin/install-info
-Requires(preun): /sbin/install-info
 
 %package doc
 Summary: Extensive documentation for NASM
 Group: Development/Languages
-Prereq: /sbin/install-info
+BuildRequires: ghostscript, texinfo
+Requires(post): /sbin/install-info
+Requires(preun): /sbin/install-info
 
 %package rdoff
 Summary: Tools for the RDOFF binary format, sometimes used with NASM.

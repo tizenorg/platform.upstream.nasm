@@ -153,11 +153,11 @@ struct symlininfo {
 };
 
 struct linelist {
-    struct symlininfo info;
-    int line;
-    char *filename;
     struct linelist *next;
     struct linelist *last;
+    struct symlininfo info;
+    char *filename;
+    int line;
 };
 
 struct sectlist {
@@ -300,25 +300,21 @@ static int elf_make_section(char *name, int type, int flags, int align)
 {
     struct Section *s;
 
-    s = nasm_malloc(sizeof(*s));
+    s = nasm_zalloc(sizeof(*s));
 
     if (type != SHT_NOBITS)
         s->data = saa_init(1L);
-    s->head = NULL;
     s->tail = &s->head;
-    s->len = s->size = 0;
-    s->nrelocs = 0;
     if (!strcmp(name, ".text"))
         s->index = def_seg;
     else
         s->index = seg_alloc();
     add_sectname("", name);
-    s->name = nasm_malloc(1 + strlen(name));
-    strcpy(s->name, name);
-    s->type = type;
-    s->flags = flags;
-    s->align = align;
-    s->gsyms = NULL;
+
+    s->name     = nasm_strdup(name);
+    s->type     = type;
+    s->flags    = flags;
+    s->align    = align;
 
     if (nsects >= sectlen)
         sects = nasm_realloc(sects, (sectlen += SECT_DELTA) * sizeof(*sects));
@@ -606,16 +602,12 @@ static void elf_add_reloc(struct Section *sect, int32_t segment, int type)
 {
     struct Reloc *r;
 
-    r = *sect->tail = nasm_malloc(sizeof(struct Reloc));
+    r = *sect->tail = nasm_zalloc(sizeof(struct Reloc));
     sect->tail = &r->next;
-    r->next = NULL;
 
     r->address = sect->len;
-    if (segment == NO_SEG)
-        r->symbol = 0;
-    else {
+    if (segment != NO_SEG) {
         int i;
-        r->symbol = 0;
         for (i = 0; i < nsects; i++)
             if (segment == sects[i]->index)
                 r->symbol = i + 2;
@@ -672,8 +664,9 @@ static int32_t elf_add_gsym_reloc(struct Section *sect,
             s = sects[i];
             break;
         }
+
     if (!s) {
-        if (exact && offset != 0)
+        if (exact && offset)
             nasm_error(ERR_NONFATAL, "unable to find a suitable global symbol"
                   " for this reference");
         else
@@ -691,11 +684,11 @@ static int32_t elf_add_gsym_reloc(struct Section *sect,
 
     r = *sect->tail = nasm_malloc(sizeof(struct Reloc));
     sect->tail = &r->next;
-    r->next = NULL;
 
-    r->address = sect->len;
-    r->symbol = GLOBAL_TEMP_BASE + sym->globnum;
-    r->type = type;
+    r->next     = NULL;
+    r->address  = sect->len;
+    r->symbol   = GLOBAL_TEMP_BASE + sym->globnum;
+    r->type     = type;
 
     sect->nrelocs++;
 
@@ -1029,7 +1022,7 @@ static void elf_write(void)
 
     /* .shstrtab */
     elf_section_header(p - shstrtab, SHT_STRTAB, 0, shstrtab, false,
-                        shstrtablen, 0, 0, 1, 0);
+                       shstrtablen, 0, 0, 1, 0);
     p += strlen(p) + 1;
 
     /* .symtab */
@@ -1274,10 +1267,6 @@ static struct SAA *elf_build_reltab(int32_t *len, struct Reloc *r)
     while (r) {
         int32_t sym = r->symbol;
 
-        /*
-         * Create a real symbol index; the +2 refers to the two special
-         * entries, the null entry and the filename entry.
-         */
         if (sym >= GLOBAL_TEMP_BASE)
             sym += global_offset;
 

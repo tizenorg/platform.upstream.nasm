@@ -146,7 +146,7 @@ sub gen_perfect_hash($) {
     # Minimal power of 2 value for N with enough wiggle room.
     # The scaling constant must be larger than 0.5 in order for the
     # algorithm to ever terminate.
-    my $room = scalar(@keys)*0.8;
+    my $room = int(scalar(@keys)*0.8);
     $n = 1;
     while ($n < $room) {
 	$n <<= 1;
@@ -161,38 +161,12 @@ sub gen_perfect_hash($) {
 	for ($j = 0; $j < $maxj; $j++) {
 	    $sv = $random_sv_vectors[$j];
 	    @hashinfo = gen_hash_n($n, $sv, $href, $run++);
-	    return @hashinfo if (defined(@hashinfo));
+	    return @hashinfo if (@hashinfo);
 	}
 	$n <<= 1;
     }
 
     return;
-}
-
-#
-# Read input file
-#
-sub read_input() {
-    my $key,$val;
-    my %out;
-    my $x = 0;
-
-    while (defined($l = <STDIN>)) {
-	chomp $l;
-	$l =~ s/\s*(\#.*|)$//;
-
-	next if ($l eq '');
-
-	if ($l =~ /^([^=]+)\=([^=]+)$/) {
-	    $out{$1} = $2;
-	    $x = $2;
-	} else {
-	    $out{$l} = $x;
-	}
-	$x++;
-    }
-
-    return %out;
 }
 
 #

@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2010 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2012 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -213,6 +213,7 @@ enum pp_token_type {
 };
 
 #define PP_CONCAT_MASK(x) (1 << (x))
+#define PP_CONCAT_MATCH(t, mask) (PP_CONCAT_MASK((t)->type) & mask)
 
 struct tokseq_match {
     int mask_head;
@@ -458,8 +459,7 @@ static Blocks blocks = { NULL, NULL };
 static Token *expand_mmac_params(Token * tline);
 static Token *expand_smacro(Token * tline);
 static Token *expand_id(Token * tline);
-static Context *get_ctx(const char *name, const char **namep,
-                        bool all_contexts);
+static Context *get_ctx(const char *name, const char **namep);
 static void make_tok_num(Token * tok, int64_t val);
 static void error(int severity, const char *fmt, ...);
 static void error_precond(int severity, const char *fmt, ...);
@@ -799,81 +799,80 @@ static char *line_from_stdmac(void)
     return line;
 }
 
-#define BUF_DELTA 512
-/*
- * Read a line from the top file in istk, handling multiple CR/LFs
- * at the end of the line read, and handling spurious ^Zs. Will
- * return lines from the standard macro set if this has not already
- * been done.
- */
 static char *read_line(void)
 {
-    char *buffer, *p, *q;
-    int bufsize, continued_count;
+    unsigned int size, c, next;
+    const unsigned int delta = 512;
+    const unsigned int pad = 8;
+    unsigned int nr_cont = 0;
+    bool cont = false;
+    char *buffer, *p;
 
-    /*
-     * standart macros set (predefined) goes first
-     */
+    /* Standart macros set (predefined) goes first */
     p = line_from_stdmac();
     if (p)
         return p;
 
-    /*
-     * regular read from a file
-     */
-    bufsize = BUF_DELTA;
-    buffer = nasm_malloc(BUF_DELTA);
-    p = buffer;
-    continued_count = 0;
-    while (1) {
-        q = fgets(p, bufsize - (p - buffer), istk->fp);
-        if (!q)
+    size = delta;
+    p = buffer = nasm_malloc(size);
+
+    for (;;) {
+        c = fgetc(istk->fp);
+        if ((int)(c) == EOF) {
+            p[0] = 0;
             break;
-        p += strlen(p);
-        if (p > buffer && p[-1] == '\n') {
-            /*
-             * Convert backslash-CRLF line continuation sequences into
-             * nothing at all (for DOS and Windows)
-             */
-            if (((p - 2) > buffer) && (p[-3] == '\\') && (p[-2] == '\r')) {
-                p -= 3;
-                *p = 0;
-                continued_count++;
-            }
-            /*
-             * Also convert backslash-LF line continuation sequences into
-             * nothing at all (for Unix)
-             */
-            else if (((p - 1) > buffer) && (p[-2] == '\\')) {
-                p -= 2;
-                *p = 0;
-                continued_count++;
-            } else {
-                break;
-            }
         }
-        if (p - buffer > bufsize - 10) {
-            int32_t offset = p - buffer;
-            bufsize += BUF_DELTA;
-            buffer = nasm_realloc(buffer, bufsize);
-            p = buffer + offset;        /* prevent stale-pointer problems */
+
+        switch (c) {
+        case '\r':
+            next = fgetc(istk->fp);
+            if (next != '\n')
+                ungetc(next, istk->fp);
+            if (cont) {
+                cont = false;
+                continue;
+            }
+            break;
+
+        case '\n':
+            if (cont) {
+                cont = false;
+                continue;
+            }
+            break;
+
+        case '\\':
+            next = fgetc(istk->fp);
+            ungetc(next, istk->fp);
+            if (next == '\r' || next == '\n') {
+                cont = true;
+                nr_cont++;
+                continue;
+            }
+            break;
         }
+
+        if (c == '\r' || c == '\n') {
+            *p++ = 0;
+            break;
+        }
+
+        if (p >= (buffer + size - pad)) {
+            buffer = nasm_realloc(buffer, size + delta);
+            p = buffer + size - pad;
+            size += delta;
+        }
+
+        *p++ = (unsigned char)c;
     }
 
-    if (!q && p == buffer) {
+    if (p == buffer) {
         nasm_free(buffer);
         return NULL;
     }
 
     src_set_linnum(src_get_linnum() + istk->lineinc +
-                   (continued_count * istk->lineinc));
-
-    /*
-     * Play safe: remove CRs as well as LFs, if any of either are
-     * present at the end of the line.
-     */
-    while (--p >= buffer && (*p == '\n' || *p == '\r'))
-        *p = '\0';
+                   (nr_cont * istk->lineinc));
 
     /*
      * Handle spurious ^Z, which may be inserted into source files
@@ -1280,7 +1279,7 @@ static char *detoken(Token * tlist, bool expand_locals)
             t->text[0] == '%' && t->text[1] == '$') {
             const char *q;
             char *p;
-            Context *ctx = get_ctx(t->text, &q, false);
+            Context *ctx = get_ctx(t->text, &q);
             if (ctx) {
                 char buffer[40];
                 snprintf(buffer, sizeof(buffer), "..@%"PRIu32".", ctx->number);
@@ -1445,19 +1444,13 @@ static int mmemcmp(const char *p, const char *q, size_t l, bool casesense)
  * NULL, having _already_ reported an error condition, if the
  * context stack isn't deep enough for the supplied number of $
  * signs.
- * If all_contexts == true, contexts that enclose current are
- * also scanned for such smacro, until it is found; if not -
- * only the context that directly results from the number of $'s
- * in variable's name.
  *
  * If "namep" is non-NULL, set it to the pointer to the macro name
  * tail, i.e. the part beyond %$...
  */
-static Context *get_ctx(const char *name, const char **namep,
-                        bool all_contexts)
+static Context *get_ctx(const char *name, const char **namep)
 {
     Context *ctx;
-    SMacro *m;
     int i;
 
     if (namep)
@@ -1488,47 +1481,7 @@ static Context *get_ctx(const char *name, const char **namep,
     if (namep)
         *namep = name;
 
-    if (!all_contexts)
-        return ctx;
-
-    /*
-     * NOTE: In 2.10 we will not need lookup in extarnal
-     * contexts, so this is a gentle way to inform users
-     * about their source code need to be updated
-     */
-
-    /* first round -- check the current context */
-    m = hash_findix(&ctx->localmac, name);
-    while (m) {
-        if (!mstrcmp(m->name, name, m->casesense))
-            return ctx;
-        m = m->next;
-    }
-
-    /* second round - external contexts */
-    while ((ctx = ctx->next)) {
-        /* Search for this smacro in found context */
-        m = hash_findix(&ctx->localmac, name);
-        while (m) {
-            if (!mstrcmp(m->name, name, m->casesense)) {
-                /* NOTE: deprecated as of 2.10 */
-                static int once = 0;
-                if (!once) {
-                    error(ERR_WARNING, "context-local macro expansion"
-                            " fall-through (automatic searching of outer"
-						    " contexts) will be deprecated starting in"
-						    " NASM 2.10, please see the NASM Manual for"
-						    " more information");
-                    once = 1;
-                }
-                error(ERR_WARNING, "`%s': context-local macro expansion fall-through", name);
-                return ctx;
-            }
-            m = m->next;
-        }
-    }
-
-    return NULL;
+    return ctx;
 }
 
 /*
@@ -1634,7 +1587,7 @@ smacro_defined(Context * ctx, const char *name, int nparam, SMacro ** defn,
         smtbl = &ctx->localmac;
     } else if (name[0] == '%' && name[1] == '$') {
         if (cstk)
-            ctx = get_ctx(name, &name, false);
+            ctx = get_ctx(name, &name);
         if (!ctx)
             return false;       /* got to return _something_ */
         smtbl = &ctx->localmac;
@@ -3042,7 +2995,7 @@ issue_error:
             return DIRECTIVE_FOUND;
         }
 
-        ctx = get_ctx(tline->text, &mname, false);
+        ctx = get_ctx(tline->text, &mname);
         last = tline;
         param_start = tline = tline->next;
         nparam = 0;
@@ -3135,7 +3088,7 @@ issue_error:
         }
 
         /* Find the context that symbol belongs to */
-        ctx = get_ctx(tline->text, &mname, false);
+        ctx = get_ctx(tline->text, &mname);
         undef_smacro(ctx, mname);
         free_tlist(origline);
         return DIRECTIVE_FOUND;
@@ -3156,7 +3109,7 @@ issue_error:
             return DIRECTIVE_FOUND;
         }
 
-        ctx = get_ctx(tline->text, &mname, false);
+        ctx = get_ctx(tline->text, &mname);
         last = tline;
         tline = expand_smacro(tline->next);
         last->next = NULL;
@@ -3197,7 +3150,7 @@ issue_error:
             free_tlist(origline);
             return DIRECTIVE_FOUND;
         }
-        ctx = get_ctx(tline->text, &mname, false);
+        ctx = get_ctx(tline->text, &mname);
         last = tline;
         tline = expand_smacro(tline->next);
         last->next = NULL;
@@ -3252,7 +3205,7 @@ issue_error:
             free_tlist(origline);
             return DIRECTIVE_FOUND;
         }
-        ctx = get_ctx(tline->text, &mname, false);
+        ctx = get_ctx(tline->text, &mname);
         last = tline;
         tline = expand_smacro(tline->next);
         last->next = NULL;
@@ -3313,7 +3266,7 @@ issue_error:
             free_tlist(origline);
             return DIRECTIVE_FOUND;
         }
-        ctx = get_ctx(tline->text, &mname, false);
+        ctx = get_ctx(tline->text, &mname);
         last = tline;
         tline = expand_smacro(tline->next);
         last->next = NULL;
@@ -3359,7 +3312,7 @@ issue_error:
             free_tlist(origline);
             return DIRECTIVE_FOUND;
         }
-        ctx = get_ctx(tline->text, &mname, false);
+        ctx = get_ctx(tline->text, &mname);
         last = tline;
         tline = expand_smacro(tline->next);
         last->next = NULL;
@@ -3424,7 +3377,7 @@ issue_error:
             free_tlist(origline);
             return DIRECTIVE_FOUND;
         }
-        ctx = get_ctx(tline->text, &mname, false);
+        ctx = get_ctx(tline->text, &mname);
         last = tline;
         tline = expand_smacro(tline->next);
         last->next = NULL;
@@ -3526,7 +3479,7 @@ issue_error:
             free_tlist(origline);
             return DIRECTIVE_FOUND;
         }
-        ctx = get_ctx(tline->text, &mname, false);
+        ctx = get_ctx(tline->text, &mname);
         last = tline;
         tline = expand_smacro(tline->next);
         last->next = NULL;
@@ -3617,7 +3570,6 @@ issue_error:
 static int find_cc(Token * t)
 {
     Token *tt;
-    int i, j, k, m;
 
     if (!t)
         return -1;              /* Probably a %+ without a space */
@@ -3630,133 +3582,160 @@ static int find_cc(Token * t)
     if (tt && (tt->type != TOK_OTHER || strcmp(tt->text, ",")))
         return -1;
 
-    i = -1;
-    j = ARRAY_SIZE(conditions);
-    while (j - i > 1) {
-        k = (j + i) / 2;
-        m = nasm_stricmp(t->text, conditions[k]);
-        if (m == 0) {
-            i = k;
-            j = -2;
-            break;
-        } else if (m < 0) {
-            j = k;
-        } else
-            i = k;
-    }
-    if (j != -2)
-        return -1;
-    return i;
+    return bsii(t->text, (const char **)conditions,  ARRAY_SIZE(conditions));
 }
 
+/*
+ * This routines walks over tokens strem and hadnles tokens
+ * pasting, if @handle_explicit passed then explicit pasting
+ * term is handled, otherwise -- implicit pastings only.
+ */
 static bool paste_tokens(Token **head, const struct tokseq_match *m,
-                         int mnum, bool handle_paste_tokens)
+                         size_t mnum, bool handle_explicit)
 {
-    Token **tail, *t, *tt;
-    Token **paste_head;
-    bool did_paste = false;
-    char *tmp;
-    int i;
+    Token *tok, *next, **prev_next, **prev_nonspace;
+    bool pasted = false;
+    char *buf, *p;
+    size_t len, i;
 
-    /* Now handle token pasting... */
-    paste_head = NULL;
-    tail = head;
-    while ((t = *tail) && (tt = t->next)) {
-        switch (t->type) {
+    /*
+     * The last token before pasting. We need it
+     * to be able to connect new handled tokens.
+     * In other words if there were a tokens stream
+     *
+     * A -> B -> C -> D
+     *
+     * and we've joined tokens B and C, the resulting
+     * stream should be
+     *
+     * A -> BC -> D
+     */
+    tok = *head;
+    prev_next = NULL;
+
+    if (!tok_type_(tok, TOK_WHITESPACE) && !tok_type_(tok, TOK_PASTE))
+        prev_nonspace = head;
+    else
+        prev_nonspace = NULL;
+
+    while (tok && (next = tok->next)) {
+
+        switch (tok->type) {
         case TOK_WHITESPACE:
-            if (tt->type == TOK_WHITESPACE) {
-                /* Zap adjacent whitespace tokens */
-                t->next = delete_Token(tt);
-            } else {
-                /* Do not advance paste_head here */
-                tail = &t->next;
-            }
+            /* Zap redundant whitespaces */
+            while (tok_type_(next, TOK_WHITESPACE))
+                next = delete_Token(next);
+            tok->next = next;
             break;
-        case TOK_PASTE:         /* %+ */
-            if (handle_paste_tokens) {
-                /* Zap %+ and whitespace tokens to the right */
-                while (t && (t->type == TOK_WHITESPACE ||
-                             t->type == TOK_PASTE))
-                    t = *tail = delete_Token(t);
-                if (!paste_head || !t)
-                    break;      /* Nothing to paste with */
-                tail = paste_head;
-                t = *tail;
-                tt = t->next;
-                while (tok_type_(tt, TOK_WHITESPACE))
-                    tt = t->next = delete_Token(tt);
-                if (tt) {
-                    tmp = nasm_strcat(t->text, tt->text);
-                    delete_Token(t);
-                    tt = delete_Token(tt);
-                    t = *tail = tokenize(tmp);
-                    nasm_free(tmp);
-                    while (t->next) {
-                        tail = &t->next;
-                        t = t->next;
-                    }
-                    t->next = tt; /* Attach the remaining token chain */
-                    did_paste = true;
-                }
-                paste_head = tail;
-                tail = &t->next;
+
+        case TOK_PASTE:
+            /* Explicit pasting */
+            if (!handle_explicit)
                 break;
-            }
-            /* else fall through */
+            next = delete_Token(tok);
+
+            while (tok_type_(next, TOK_WHITESPACE))
+                next = delete_Token(next);
+
+            if (!pasted)
+                pasted = true;
+
+            /* No ending token */
+            if (!next)
+                error(ERR_FATAL, "No rvalue found on pasting");
+
+            /* Left pasting token is start of line */
+            if (!prev_nonspace)
+                error(ERR_FATAL, "No lvalue found on pasting");
+
+            tok = *prev_nonspace;
+            while (tok_type_(tok, TOK_WHITESPACE))
+                tok = delete_Token(tok);
+            len  = strlen(tok->text);
+            len += strlen(next->text);
+
+            p = buf = nasm_malloc(len + 1);
+            strcpy(p, tok->text);
+            p = strchr(p, '\0');
+            strcpy(p, next->text);
+
+            delete_Token(tok);
+
+            tok = tokenize(buf);
+            nasm_free(buf);
+
+            *prev_nonspace = tok;
+            while (tok && tok->next)
+                tok = tok->next;
+
+            tok->next = delete_Token(next);
+
+            /* Restart from pasted tokens head */
+            tok = *prev_nonspace;
+            break;
+
         default:
-            /*
-             * Concatenation of tokens might look nontrivial
-             * but in real it's pretty simple -- the caller
-             * prepares the masks of token types to be concatenated
-             * and we simply find matched sequences and slip
-             * them together
-             */
+            /* implicit pasting */
             for (i = 0; i < mnum; i++) {
-                if (PP_CONCAT_MASK(t->type) & m[i].mask_head) {
-                    size_t len = 0;
-                    char *tmp, *p;
+                if (!(PP_CONCAT_MATCH(tok, m[i].mask_head)))
+                    continue;
 
-                    while (tt && (PP_CONCAT_MASK(tt->type) & m[i].mask_tail)) {
-                        len += strlen(tt->text);
-                        tt = tt->next;
-                    }
-
-                    /*
-                     * Now tt points to the first token after
-                     * the potential paste area...
-                     */
-                    if (tt != t->next) {
-                        /* We have at least two tokens... */
-                        len += strlen(t->text);
-                        p = tmp = nasm_malloc(len+1);
-                        while (t != tt) {
-                            strcpy(p, t->text);
-                            p = strchr(p, '\0');
-                            t = delete_Token(t);
-                        }
-                        t = *tail = tokenize(tmp);
-                        nasm_free(tmp);
-                        while (t->next) {
-                            tail = &t->next;
-                            t = t->next;
-                        }
-                        t->next = tt;   /* Attach the remaining token chain */
-                        did_paste = true;
-                    }
-                    paste_head = tail;
-                    tail = &t->next;
-                    break;
+                len = 0;
+                while (next && PP_CONCAT_MATCH(next, m[i].mask_tail)) {
+                    len += strlen(next->text);
+                    next = next->next;
                 }
+
+                /* No match */
+                if (tok == next)
+                    break;
+
+                len += strlen(tok->text);
+                p = buf = nasm_malloc(len + 1);
+
+                while (tok != next) {
+                    strcpy(p, tok->text);
+                    p = strchr(p, '\0');
+                    tok = delete_Token(tok);
+                }
+
+                tok = tokenize(buf);
+                nasm_free(buf);
+
+                if (prev_next)
+                    *prev_next = tok;
+                else
+                    *head = tok;
+
+                /*
+                 * Connect pasted into original stream,
+                 * ie A -> new-tokens -> B
+                 */
+                while (tok && tok->next)
+                    tok = tok->next;
+                tok->next = next;
+
+                if (!pasted)
+                    pasted = true;
+
+                /* Restart from pasted tokens head */
+                tok = prev_next ? *prev_next : *head;
             }
-            if (i >= mnum) {    /* no match */
-                tail = &t->next;
-                if (!tok_type_(t->next, TOK_WHITESPACE))
-                    paste_head = tail;
-            }
+
             break;
         }
+
+        prev_next = &tok->next;
+
+        if (tok->next &&
+            !tok_type_(tok->next, TOK_WHITESPACE) &&
+            !tok_type_(tok->next, TOK_PASTE))
+            prev_nonspace = prev_next;
+
+        tok = tok->next;
     }
-    return did_paste;
+
+    return pasted;
 }
 
 /*
@@ -4069,7 +4048,7 @@ again:
             if (tline->type == TOK_ID) {
                 head = (SMacro *)hash_findix(&smacros, mname);
             } else if (tline->type == TOK_PREPROC_ID) {
-                ctx = get_ctx(mname, &mname, true);
+                ctx = get_ctx(mname, &mname);
                 head = ctx ? (SMacro *)hash_findix(&ctx->localmac, mname) : NULL;
             } else
                 head = NULL;
@@ -4581,7 +4560,7 @@ static int expand_mmacro(Token * tline)
     Token *startline = tline;
     Token *label = NULL;
     int dont_prepend = 0;
-    Token **params, *t, *mtok, *tt;
+    Token **params, *t, *tt;
     MMacro *m;
     Line *l, *ll;
     int i, nparam, *paramlen;
@@ -4592,7 +4571,6 @@ static int expand_mmacro(Token * tline)
     /*    if (!tok_type_(t, TOK_ID))  Lino 02/25/02 */
     if (!tok_type_(t, TOK_ID) && !tok_type_(t, TOK_PREPROC_ID))
         return 0;
-    mtok = t;
     m = is_mmacro(t, &params);
     if (m) {
         mname = t->text;
@@ -5128,7 +5106,7 @@ static void pp_cleanup(int pass)
     }
 }
 
-void pp_include_path(char *path)
+static void pp_include_path(char *path)
 {
     IncPath *i;
 
@@ -5146,7 +5124,7 @@ void pp_include_path(char *path)
     }
 }
 
-void pp_pre_include(char *fname)
+static void pp_pre_include(char *fname)
 {
     Token *inc, *space, *name;
     Line *l;
@@ -5162,7 +5140,7 @@ void pp_pre_include(char *fname)
     predef = l;
 }
 
-void pp_pre_define(char *definition)
+static void pp_pre_define(char *definition)
 {
     Token *def, *space;
     Line *l;
@@ -5184,7 +5162,7 @@ void pp_pre_define(char *definition)
     predef = l;
 }
 
-void pp_pre_undefine(char *definition)
+static void pp_pre_undefine(char *definition)
 {
     Token *def, *space;
     Line *l;
@@ -5200,27 +5178,7 @@ void pp_pre_undefine(char *definition)
     predef = l;
 }
 
-/*
- * Added by Keith Kanios:
- *
- * This function is used to assist with "runtime" preprocessor
- * directives. (e.g. pp_runtime("%define __BITS__ 64");)
- *
- * ERRORS ARE IGNORED HERE, SO MAKE COMPLETELY SURE THAT YOU
- * PASS A VALID STRING TO THIS FUNCTION!!!!!
- */
-
-void pp_runtime(char *definition)
-{
-    Token *def;
-
-    def = tokenize(definition);
-    if (do_directive(def) == NO_DIRECTIVE_FOUND)
-        free_tlist(def);
-
-}
-
-void pp_extra_stdmac(macros_t *macros)
+static void pp_extra_stdmac(macros_t *macros)
 {
     extrastdmac = macros;
 }
@@ -5233,8 +5191,13 @@ static void make_tok_num(Token * tok, int64_t val)
     tok->type = TOK_NUMBER;
 }
 
-Preproc nasmpp = {
+struct preproc_ops nasmpp = {
     pp_reset,
     pp_getline,
-    pp_cleanup
+    pp_cleanup,
+    pp_extra_stdmac,
+    pp_pre_define,
+    pp_pre_undefine,
+    pp_pre_include,
+    pp_include_path
 };

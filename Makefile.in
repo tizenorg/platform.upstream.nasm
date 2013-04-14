@@ -36,15 +36,21 @@ MKDIR		= mkdir
 RM		= rm
 
 STRIP		= strip
+FIND		= find
 
 # Binary suffixes
 O               = @OBJEXT@
 X               = @EXEEXT@
 
+# Debug stuff
+ifeq ($(TRACE),1)
+	CFLAGS += -DNASM_TRACE
+endif
+
 .SUFFIXES: .c .i .s .$(O) .1 .man
 
-.PHONY: all doc rdf install clean distclean cleaner spotless install_rdf
-.PHONY: install_doc everything install_everything strip perlreq dist
+.PHONY: all doc rdf install clean distclean cleaner spotless install_rdf test
+.PHONY: install_doc everything install_everything strip perlreq dist tags TAGS
 
 .c.$(O):
 	$(CC) -c $(ALL_CFLAGS) -o $@ $<
@@ -68,20 +74,21 @@ NASM =	nasm.$(O) nasmlib.$(O) ver.$(O) \
 	output/nullout.$(O) \
 	output/outbin.$(O) output/outaout.$(O) output/outcoff.$(O) \
 	output/outelf.$(O) output/outelf32.$(O) output/outelf64.$(O) \
+	output/outelfx32.$(O) \
 	output/outobj.$(O) output/outas86.$(O) output/outrdf2.$(O) \
 	output/outdbg.$(O) output/outieee.$(O) output/outmac32.$(O) \
 	output/outmac64.$(O) preproc.$(O) quote.$(O) pptok.$(O) \
 	macros.$(O) listing.$(O) eval.$(O) exprlib.$(O) stdscan.$(O) \
 	strfunc.$(O) tokhash.$(O) regvals.$(O) regflags.$(O) \
 	ilog2.$(O) \
-	lib/strlcpy.$(O)
+	lib/strlcpy.$(O) \
+	preproc-nop.$(O)
 
 NDISASM = ndisasm.$(O) disasm.$(O) sync.$(O) nasmlib.$(O) ver.$(O) \
 	insnsd.$(O) insnsb.$(O) insnsn.$(O) regs.$(O) regdis.$(O)
 #-- End File Lists --#
 
-all: nasm$(X) ndisasm$(X) nasm.man ndisasm.man
-	cd rdoff && $(MAKE) all
+all: nasm$(X) ndisasm$(X) nasm.man ndisasm.man rdf
 
 nasm$(X): $(NASM) $(XOBJS)
 	$(CC) $(LDFLAGS) -o nasm$(X) $(NASM) $(XOBJS) $(LIBS)
@@ -187,6 +194,7 @@ clean:
 	$(RM) -f lib/*.$(O) lib/*.s lib/*.i
 	$(RM) -f output/*.$(O) output/*.s output/*.i
 	$(RM) -f nasm$(X) ndisasm$(X)
+	$(RM) -f tags TAGS
 	cd rdoff && $(MAKE) clean
 
 distclean: clean
@@ -207,8 +215,21 @@ spotless: distclean cleaner
 strip:
 	$(STRIP) --strip-unneeded nasm$(X) ndisasm$(X)
 
-rdf:
-	cd rdoff && $(MAKE)
+rdf: nasmlib.$(O)
+	cd rdoff && $(MAKE) all
+
+TAGS:
+	$(RM) -f TAGS
+	$(FIND) . -name '*.[hcS]' -print | xargs etags -a
+
+tags:
+	$(RM) -f tags
+	$(FIND) . -name '*.[hcS]' -print | xargs ctags -a
+
+cscope:
+	$(RM) -f cscope.out cscope.files
+	$(FIND) . -name '*.[hcS]' -print > cscope.files
+	cscope -b -f cscope.out
 
 rdf_install install_rdf:
 	cd rdoff && $(MAKE) install
@@ -330,6 +351,10 @@ output/outelf64.$(O): output/outelf64.c compiler.h config.h directiv.h \
  eval.h insnsi.h nasm.h nasmlib.h opflags.h output/dwarf.h output/elf.h \
  output/outelf.h output/outform.h output/outlib.h output/stabs.h pptok.h \
  preproc.h raa.h rbtree.h regs.h saa.h stdscan.h
+output/outelfx32.$(O): output/outelfx32.c compiler.h config.h directiv.h \
+ eval.h insnsi.h nasm.h nasmlib.h opflags.h output/dwarf.h output/elf.h \
+ output/outelf.h output/outform.h output/outlib.h output/stabs.h pptok.h \
+ preproc.h raa.h rbtree.h regs.h saa.h stdscan.h
 output/outform.$(O): output/outform.c compiler.h config.h directiv.h \
  insnsi.h nasm.h nasmlib.h opflags.h output/outform.h pptok.h preproc.h \
  regs.h
@@ -355,6 +380,8 @@ parser.$(O): parser.c compiler.h config.h directiv.h eval.h float.h insns.h \
  stdscan.h tables.h tokens.h
 pptok.$(O): pptok.c compiler.h config.h hashtbl.h nasmlib.h pptok.h \
  preproc.h
+preproc-nop.$(O): preproc-nop.c compiler.h config.h directiv.h insnsi.h \
+ nasm.h nasmlib.h opflags.h pptok.h preproc.h regs.h
 preproc.$(O): preproc.c compiler.h config.h directiv.h eval.h hashtbl.h \
  insnsi.h nasm.h nasmlib.h opflags.h pptok.h preproc.h quote.h regs.h \
  stdscan.h tables.h tokens.h

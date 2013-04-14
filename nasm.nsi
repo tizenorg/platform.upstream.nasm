@@ -106,6 +106,7 @@ Section "NASM" SecNasm
 
     ;Store shortcuts folder
     WriteRegStr HKCU "Software\${PRODUCT_SHORT_NAME}\" "lnk" $SMPROGRAMS\$StartMenuFolder
+    WriteRegStr HKCU "Software\${PRODUCT_SHORT_NAME}\" "bat-lnk" $DESKTOP\${PRODUCT_SHORT_NAME}.lnk
 
     ;
     ; the bat we need
@@ -183,13 +184,43 @@ SectionEnd
 Section "Uninstall"
     ;
     ; files on HDD
-    RMDir /r /rebootok "$INSTDIR"
-    Delete /rebootok "$DESKTOP\${PRODUCT_SHORT_NAME}.lnk"
+    IfFileExists "$INSTDIR" +3 +1
+        MessageBox MB_OK "No files found, aborting."
+        Abort
+        MessageBox MB_YESNO "The following directory will be deleted$\n$INSTDIR" IDYES rm_instdir_true IDNO rm_instdir_false
+        rm_instdir_true:
+            RMDir /r /rebootok "$INSTDIR"
+        rm_instdir_false:
+
     ;
-    ; Start Menu folder
+    ; Desktop link
+    ReadRegStr $0 HKCU Software\${PRODUCT_SHORT_NAME} "bat-lnk"
+    StrCmp $0 0 +1 +3
+        MessageBox MB_OK "Invalid path to a bat-lnk file, aborting"
+        Abort
+    IfFileExists $0 +3 +1
+        MessageBox MB_OK "No bat-lnk files found, aborting."
+        Abort
+        MessageBox MB_YESNO "The following file will be deleted$\n$0" IDYES rm_batlinks_true IDNO rm_batlinks_false
+        rm_batlinks_true:
+            Delete /rebootok "$0"
+            RMDir "$0"
+        rm_batlinks_false:
+
+    ;
+    ; Start menu folder
     ReadRegStr $0 HKCU Software\${PRODUCT_SHORT_NAME} "lnk"
-    Delete /rebootok "$0\*"
-    RMDir "$0"
+    StrCmp $0 0 +1 +3
+        MessageBox MB_OK "Invalid path to a lnk file, aborting"
+        Abort
+    IfFileExists $0 +3 +1
+        MessageBox MB_OK "No lnk files found, aborting."
+        Abort
+        MessageBox MB_YESNO "The following directory will be deleted$\n$0" IDYES rm_links_true IDNO rm_links_false
+        rm_links_true:
+            Delete /rebootok "$0\*"
+            RMDir "$0"
+        rm_links_false:
     DeleteRegKey /ifempty HKCU "Software\${PRODUCT_SHORT_NAME}"
 SectionEnd
 

@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *   
- *   Copyright 1996-2010 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2012 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -291,8 +291,7 @@ char *nasm_strsep(char **stringp, const char *delim)
 #endif
 
 
-#define lib_isnumchar(c)   (nasm_isalnum(c) || (c) == '$' || (c) == '_')
-#define numvalue(c)  ((c)>='a' ? (c)-'a'+10 : (c)>='A' ? (c)-'A'+10 : (c)-'0')
+#define lib_isnumchar(c)    (nasm_isalnum(c) || (c) == '$' || (c) == '_')
 
 static int radix_letter(char c)
 {
@@ -564,7 +563,8 @@ void standard_extension(char *inname, char *outname, char *extension)
  */
 static const char *prefix_names[] = {
     "a16", "a32", "a64", "asp", "lock", "o16", "o32", "o64", "osp",
-    "rep", "repe", "repne", "repnz", "repz", "times", "wait"
+    "rep", "repe", "repne", "repnz", "repz", "times", "wait",
+    "xacquire", "xrelease"
 };
 
 const char *prefix_name(int token)
@@ -737,9 +737,9 @@ char *nasm_get_word(char *p, char **tail)
  */
 char *nasm_opt_val(char *p, char **val, char **next)
 {
-    char *q, *opt, *nxt;
+    char *q, *nxt;
 
-    opt = *val = *next = NULL;
+    *val = *next = NULL;
 
     p = nasm_get_word(p, &nxt);
     if (!p)
@@ -775,35 +775,24 @@ char *nasm_opt_val(char *p, char **val, char **next)
  */
 int idata_bytes(int opcode)
 {
-    int ret;
     switch (opcode) {
     case I_DB:
-        ret = 1;
-        break;
+        return 1;
     case I_DW:
-        ret = 2;
-        break;
+        return 2;
     case I_DD:
-        ret = 4;
-        break;
+        return 4;
     case I_DQ:
-        ret = 8;
-        break;
+        return 8;
     case I_DT:
-        ret = 10;
-        break;
+        return 10;
     case I_DO:
-        ret = 16;
-        break;
+        return 16;
     case I_DY:
-        ret = 32;
-        break;
+        return 32;
     case I_none:
-        ret = -1;
-        break;
+        return -1;
     default:
-        ret = 0;
-        break;
+        return 0;
     }
-    return ret;
 }
