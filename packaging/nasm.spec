@@ -6,6 +6,7 @@ Summary:        Netwide Assembler (An x86 Assembler)
 Url:            http://nasm.sourceforge.net/
 Group:          Development/Languages
 Source:         nasm-%{version}.tar.xz
+Source1001: 	nasm.manifest
 BuildRequires:  makeinfo
 
 %description
@@ -16,6 +17,7 @@ Read the licence agreement in /usr/share/doc/packages/nasm/Licence.
 
 %prep
 %setup -q
+cp %{SOURCE1001} .
 
 %package doc
 License:        LGPL-2.1+
@@ -54,12 +56,14 @@ install -m 644 ndisasm.1 nasm.1 rdoff/*.1 %{buildroot}%{_mandir}/man1
 install -m 644 doc/info/* %{buildroot}%{_infodir}
 
 %files
+%manifest %{name}.manifest
 %defattr(-,root,root)
 %license LICENSE
 /usr/bin/*
 %doc %{_mandir}/man1/*.1.gz
 
 %files doc
+%manifest %{name}.manifest
 %defattr(-,root,root)
 %doc %{_docdir}/nasm
 %doc %{_infodir}/nasm*
