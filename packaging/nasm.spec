@@ -1,13 +1,17 @@
 Name:           nasm
-Version:        2.10.07
+Version:        2.11.05
 Release:        0
 License:        BSD-2-Clause
 Summary:        Netwide Assembler (An x86 Assembler)
 Url:            http://nasm.sourceforge.net/
+#X-Vc-Url:      git://repo.or.cz/nasm.git
 Group:          Development/Languages
-Source:         nasm-%{version}.tar.xz
-Source1001: 	nasm.manifest
+Source:         %{name}-%{version}.tar.xz
+Source1001:     nasm.manifest
+BuildRequires:  asciidoc
+BuildRequires:  docbook
 BuildRequires:  makeinfo
+BuildRequires:  xmlto
 
 %description
 NASM is a prototype general-purpose x86 assembler. It can currently
@@ -32,11 +36,11 @@ touch -r ./ver.c ./ver.c.stamp
 TS=$(LC_ALL=C date -u -r %{_sourcedir}/%{name}.changes '+%%b %%e %%Y')
 sed -i "s/__DATE__/\"$TS\"/g" ver.c
 touch -r ./ver.c.stamp ./ver.c
-%configure
-make all
+%autogen
+%reconfigure
+%__make all
 
-cd doc
-make html info nasmdoc.ps nasmdoc.txt
+%__make -C doc html info nasmdoc.ps nasmdoc.txt
 
 %install
 install -d -m 755 %{buildroot}/usr/bin
@@ -68,4 +72,3 @@ install -m 644 doc/info/* %{buildroot}%{_infodir}
 %doc %{_docdir}/nasm
 %doc %{_infodir}/nasm*
 
-%changelog
