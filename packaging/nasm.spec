@@ -1,5 +1,5 @@
 Name:           nasm
-Version:        2.11.05
+Version:        2.11.06
 Release:        0
 License:        BSD-2-Clause
 Summary:        Netwide Assembler (An x86 Assembler)
@@ -12,6 +12,7 @@ BuildRequires:  asciidoc
 BuildRequires:  docbook
 BuildRequires:  makeinfo
 BuildRequires:  xmlto
+BuildRequires:  fdupes
 
 %description
 NASM is a prototype general-purpose x86 assembler. It can currently
@@ -43,32 +44,33 @@ touch -r ./ver.c.stamp ./ver.c
 %__make -C doc html info nasmdoc.ps nasmdoc.txt
 
 %install
-install -d -m 755 %{buildroot}/usr/bin
-install -d -m 755 %{buildroot}/%{_mandir}/man1
-install -d -m 755 %{buildroot}/%{_docdir}/nasm
-install -d -m 755 %{buildroot}/%{_docdir}/nasm/rdoff
-install -d -m 755 %{buildroot}/%{_docdir}/nasm/html
-install -d -m 755 %{buildroot}/%{_infodir}
+install -d -m 755 %{buildroot}%{_bindir}
+install -d -m 755 %{buildroot}%{_mandir}/man1
+install -d -m 755 %{buildroot}%{_docdir}/%{name}
+install -d -m 755 %{buildroot}%{_docdir}/%{name}/rdoff
+install -d -m 755 %{buildroot}%{_docdir}/%{name}/html
+install -d -m 755 %{buildroot}%{_infodir}
 make INSTALLROOT=%{buildroot} install
 make INSTALLROOT=%{buildroot} rdf_install
-install -m 644 AUTHORS CHANGES ChangeLog LICENSE TODO README doc/*.txt \
-	%{buildroot}/%{_docdir}/nasm
+install -m 644 AUTHORS CHANGES ChangeLog TODO README doc/*.txt \
+    %{buildroot}/%{_docdir}/nasm
 install -m 644 rdoff/README rdoff/doc/* \
-	%{buildroot}/%{_docdir}/nasm/rdoff
+    %{buildroot}/%{_docdir}/nasm/rdoff
 install -m 644 doc/html/* %{buildroot}%{_docdir}/nasm/html
 install -m 644 ndisasm.1 nasm.1 rdoff/*.1 %{buildroot}%{_mandir}/man1
 install -m 644 doc/info/* %{buildroot}%{_infodir}
+
+%fdupes %{buildroot}%{_mandir}/man1
 
 %files
 %manifest %{name}.manifest
 %defattr(-,root,root)
 %license LICENSE
-/usr/bin/*
+%{_bindir}/*
 %doc %{_mandir}/man1/*.1.gz
 
 %files doc
 %manifest %{name}.manifest
 %defattr(-,root,root)
-%doc %{_docdir}/nasm
-%doc %{_infodir}/nasm*
-
+%doc %{_docdir}/%{name}
+%doc %{_infodir}/%{name}*
