@@ -8,6 +8,7 @@ Url:            http://nasm.sourceforge.net/
 Group:          Development/Languages
 Source:         %{name}-%{version}.tar.xz
 Source1001:     nasm.manifest
+Source1002:     nasm.changes
 BuildRequires:  asciidoc
 BuildRequires:  docbook
 BuildRequires:  makeinfo
